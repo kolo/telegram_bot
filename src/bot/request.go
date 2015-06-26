@@ -1,10 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"net/url"
+	"strconv"
 )
 
 const (
@@ -12,11 +13,23 @@ const (
 	LimitMax        = 100
 )
 
-type User struct {
-	ID        int    `json:"id"`
-	FirstName string `json:"first_name"`
-	LastName  string `json:"last_name"`
-	Username  string `json:"username"`
+type requestParams map[string]string
+
+type requestError struct {
+	code int
+	desc string
+}
+
+func (e requestError) Error() string {
+	return fmt.Sprintf("request error: code %d, %s", e.code, e.desc)
+}
+
+type requestResult struct {
+	Ok     bool            `json:"ok"`
+	Result json.RawMessage `json:"result"`
+
+	ErrorCode   int    `json:"error_code"`
+	Description string `json:"description"`
 }
 
 type Client struct {
@@ -32,23 +45,64 @@ func NewClient(token string) *Client {
 	}
 }
 
-func (c *Client) GetMe() error {
-	baseUrl, err := url.Parse(c.requestBaseUrl("getMe"))
+func (c *Client) GetMe() (*User, error) {
+	user := &User{}
+	if err := c.doRequest("getMe", nil, user); err != nil {
+		return nil, err
+	}
+
+	return user, nil
+}
+
+func (c *Client) GetUpdates(offset int, limit int, timeout int) ([]*Update, error) {
+	params := requestParams{
+		"offset":  strconv.Itoa(offset),
+		"limit":   strconv.Itoa(limit),
+		"timeout": strconv.Itoa(timeout),
+	}
+	updates := []*Update{}
+	if err := c.doRequest("getUpdates", params, &updates); err != nil {
+		return nil, err
+	}
+
+	return updates, nil
+}
+
+func (c *Client) doRequest(method string, p requestParams, value interface{}) error {
+	requestUrl, err := url.Parse(c.requestBaseUrl(method))
 	if err != nil {
 		return err
 	}
 
-	resp, err := c.httpClient.Get(baseUrl.String())
+	params := url.Values{}
+	for key, value := range p {
+		params.Add(key, value)
+	}
+	requestUrl.RawQuery = params.Encode()
+
+	resp, err := c.httpClient.Get(requestUrl.String())
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
-	data, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
+	if resp.StatusCode != 200 {
+		return requestError{code: resp.StatusCode, desc: "http request error"}
+	}
+
+	res := &requestResult{}
+	dec := json.NewDecoder(resp.Body)
+	if err = dec.Decode(res); err != nil {
 		return err
 	}
-	fmt.Println(string(data))
+
+	if !res.Ok {
+		return requestError{code: res.ErrorCode, desc: res.Description}
+	}
+
+	if err = json.Unmarshal(res.Result, value); err != nil {
+		return err
+	}
 
 	return nil
 }
