@@ -47,7 +47,7 @@ func NewClient(token string) *Client {
 
 func (c *Client) GetMe() (*User, error) {
 	user := &User{}
-	if err := c.doRequest("getMe", nil, user); err != nil {
+	if err := c.get("getMe", nil, user); err != nil {
 		return nil, err
 	}
 
@@ -61,14 +61,27 @@ func (c *Client) GetUpdates(offset int, limit int, timeout int) ([]*Update, erro
 		"timeout": strconv.Itoa(timeout),
 	}
 	updates := []*Update{}
-	if err := c.doRequest("getUpdates", params, &updates); err != nil {
+	if err := c.get("getUpdates", params, &updates); err != nil {
 		return nil, err
 	}
 
 	return updates, nil
 }
 
-func (c *Client) doRequest(method string, p requestParams, value interface{}) error {
+func (c *Client) SendMessage(chatID int, text string) (*Message, error) {
+	params := requestParams{
+		"chat_id": strconv.Itoa(chatID),
+		"text":    text,
+	}
+	m := &Message{}
+	if err := c.post("sendMessage", params, m); err != nil {
+		return nil, err
+	}
+
+	return m, nil
+}
+
+func (c *Client) get(method string, p requestParams, value interface{}) error {
 	requestUrl, err := url.Parse(c.requestBaseUrl(method))
 	if err != nil {
 		return err
@@ -81,6 +94,39 @@ func (c *Client) doRequest(method string, p requestParams, value interface{}) er
 	requestUrl.RawQuery = params.Encode()
 
 	resp, err := c.httpClient.Get(requestUrl.String())
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return requestError{code: resp.StatusCode, desc: "http request error"}
+	}
+
+	res := &requestResult{}
+	dec := json.NewDecoder(resp.Body)
+	if err = dec.Decode(res); err != nil {
+		return err
+	}
+
+	if !res.Ok {
+		return requestError{code: res.ErrorCode, desc: res.Description}
+	}
+
+	if err = json.Unmarshal(res.Result, value); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (c *Client) post(method string, p requestParams, value interface{}) error {
+	data := url.Values{}
+	for key, value := range p {
+		data.Add(key, value)
+	}
+
+	resp, err := c.httpClient.PostForm(c.requestBaseUrl(method), data)
 	if err != nil {
 		return err
 	}
