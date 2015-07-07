@@ -154,5 +154,5 @@ func (c *Client) post(method string, p requestParams, value interface{}) error {
 }
 
 func (c *Client) requestBaseUrl(method string) string {
-	return fmt.Sprintf("%s/bot%s/%s", TelegramBaseUrl, token, method)
+	return fmt.Sprintf("%s/bot%s/%s", TelegramBaseUrl, c.token, method)
 }
