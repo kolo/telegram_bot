@@ -6,9 +6,17 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"regexp"
+	"strings"
 	"syscall"
-	"time"
+
+	"bot"
 )
+
+type Command struct {
+	Name string
+	Run  func(cmd *Command, args string) (string, error)
+}
 
 var (
 	config struct {
@@ -18,11 +26,13 @@ var (
 		Password string
 	}
 
+	commandRx = regexp.MustCompile(`^\/\w+`)
+	commands  = []*Command{
+		cmdBug,
+	}
+
 	bzClient *BugzillaClient
 )
-
-func init() {
-}
 
 func main() {
 	flag.StringVar(&config.Token, "token", os.Getenv("bugzilla_bot_token"), "Set bot token")
@@ -42,15 +52,8 @@ func main() {
 		fail(err)
 	}
 
-	tgClient := NewClient(config.Token)
-	user, err := tgClient.GetMe()
-	if err != nil {
-		fail(err)
-	}
-
-	log.Printf("%s starts working\n", user.Username)
-
-	go pollUpdates(tgClient)
+	b := bot.NewBot(config.Token)
+	go b.PollUpdates(handle)
 
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(
@@ -75,24 +78,42 @@ func fail(err error) {
 	log.Fatalf("%v\n", err)
 }
 
-func pollUpdates(client *Client) {
-	offset := 0
-	for {
-		var err error
-		updates, err := client.GetUpdates(offset, 100, 0)
-		if err != nil {
-			fail(err)
-		}
-		if len(updates) > 0 {
-			log.Printf("getUpdates: %d updates received\n", len(updates))
-			for _, upd := range updates {
-				if err := handle(client, upd.Message); err != nil {
-					log.Printf("%v\n", err)
-				}
-			}
-			offset = updates[len(updates)-1].ID + 1
-		}
-
-		time.Sleep(1000)
+func handle(b *bot.Bot, msg *bot.Message) error {
+	if msg.Text == "" {
+		return nil
 	}
+
+	if !commandRx.MatchString(msg.Text) {
+		return nil
+	}
+
+	name, args := parseCommand(msg.Text)
+	for _, cmd := range commands {
+		if cmd.Name == name {
+			resp, err := cmd.Run(cmd, args)
+			if err != nil {
+				return err
+			}
+
+			m, err := b.SendMessage(msg.Chat.ID, resp)
+			if err != nil {
+				return err
+			}
+			log.Printf("message %d sent successfully\n", m.ID)
+		}
+	}
+
+	return nil
+}
+
+func parseCommand(s string) (string, string) {
+	var cmd, args string
+
+	t := strings.SplitN(s, " ", 2)
+	cmd = strings.TrimLeft(t[0], "/")
+	if len(t) == 2 {
+		args = t[1]
+	}
+
+	return cmd, args
 }

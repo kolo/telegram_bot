@@ -1,19 +1,17 @@
-package main
+package bot
 
 import (
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
-	"strconv"
 )
 
 const (
 	TelegramBaseUrl = "https://api.telegram.org"
-	LimitMax        = 100
 )
 
-type requestParams map[string]string
+type RequestParams map[string]string
 
 type requestError struct {
 	code int
@@ -45,43 +43,7 @@ func NewClient(token string) *Client {
 	}
 }
 
-func (c *Client) GetMe() (*User, error) {
-	user := &User{}
-	if err := c.get("getMe", nil, user); err != nil {
-		return nil, err
-	}
-
-	return user, nil
-}
-
-func (c *Client) GetUpdates(offset int, limit int, timeout int) ([]*Update, error) {
-	params := requestParams{
-		"offset":  strconv.Itoa(offset),
-		"limit":   strconv.Itoa(limit),
-		"timeout": strconv.Itoa(timeout),
-	}
-	updates := []*Update{}
-	if err := c.get("getUpdates", params, &updates); err != nil {
-		return nil, err
-	}
-
-	return updates, nil
-}
-
-func (c *Client) SendMessage(chatID int, text string) (*Message, error) {
-	params := requestParams{
-		"chat_id": strconv.Itoa(chatID),
-		"text":    text,
-	}
-	m := &Message{}
-	if err := c.post("sendMessage", params, m); err != nil {
-		return nil, err
-	}
-
-	return m, nil
-}
-
-func (c *Client) get(method string, p requestParams, value interface{}) error {
+func (c *Client) Get(method string, p RequestParams, value interface{}) error {
 	requestUrl, err := url.Parse(c.requestBaseUrl(method))
 	if err != nil {
 		return err
@@ -120,7 +82,7 @@ func (c *Client) get(method string, p requestParams, value interface{}) error {
 	return nil
 }
 
-func (c *Client) post(method string, p requestParams, value interface{}) error {
+func (c *Client) Post(method string, p RequestParams, value interface{}) error {
 	data := url.Values{}
 	for key, value := range p {
 		data.Add(key, value)

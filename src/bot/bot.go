@@ -1,59 +1,77 @@
-package main
+package bot
 
 import (
 	"log"
-	"regexp"
-	"strings"
+	"strconv"
+	"time"
 )
 
-type Command struct {
-	Name string
-	Run  func(cmd *Command, args string) (string, error)
+type HandleFunc func(*Bot, *Message) error
+
+type Bot struct {
+	client *Client
 }
 
-var (
-	commandRx = regexp.MustCompile(`^\/\w+`)
-	commands  = []*Command{
-		cmdBug,
+func NewBot(token string) *Bot {
+	return &Bot{
+		client: NewClient(token),
 	}
-)
+}
 
-func handle(client *Client, msg *Message) error {
-	if msg.Text == "" {
-		return nil
-	}
-
-	if !commandRx.MatchString(msg.Text) {
-		return nil
-	}
-
-	name, args := parseCommand(msg.Text)
-	for _, cmd := range commands {
-		if cmd.Name == name {
-			resp, err := cmd.Run(cmd, args)
-			if err != nil {
-				return err
-			}
-
-			m, err := client.SendMessage(msg.Chat.ID, resp)
-			if err != nil {
-				return err
-			}
-			log.Printf("message %d sent successfully\n", m.ID)
+func (b *Bot) PollUpdates(handler HandleFunc) error {
+	offset := 0
+	for {
+		var err error
+		updates, err := b.GetUpdates(offset, 100, 0)
+		if err != nil {
+			return err
 		}
-	}
+		if len(updates) > 0 {
+			log.Printf("getUpdates: %d updates received\n", len(updates))
+			for _, upd := range updates {
+				if err := handler(b, upd.Message); err != nil {
+					log.Printf("%v\n", err)
+				}
+			}
+			offset = updates[len(updates)-1].ID + 1
+		}
 
-	return nil
+		time.Sleep(1000)
+	}
 }
 
-func parseCommand(s string) (string, string) {
-	var cmd, args string
-
-	t := strings.SplitN(s, " ", 2)
-	cmd = strings.TrimLeft(t[0], "/")
-	if len(t) == 2 {
-		args = t[1]
+func (b *Bot) GetMe() (*User, error) {
+	user := &User{}
+	if err := b.client.Get("getMe", nil, user); err != nil {
+		return nil, err
 	}
 
-	return cmd, args
+	return user, nil
+}
+
+func (b *Bot) GetUpdates(offset int, limit int, timeout int) ([]*Update, error) {
+	params := RequestParams{
+		"offset":  strconv.Itoa(offset),
+		"limit":   strconv.Itoa(limit),
+		"timeout": strconv.Itoa(timeout),
+	}
+	updates := []*Update{}
+	if err := b.client.Get("getUpdates", params, &updates); err != nil {
+		return nil, err
+	}
+
+	return updates, nil
+}
+
+func (b *Bot) SendMessage(chatID int, text string) (*Message, error) {
+	params := RequestParams{
+		"chat_id": strconv.Itoa(chatID),
+		"text":    text,
+	}
+	m := &Message{}
+	if err := b.client.Post("sendMessage", params, m); err != nil {
+		return nil, err
+	}
+
+	return m, nil
 }
