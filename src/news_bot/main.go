@@ -8,7 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"bot"
+	"telegram"
 )
 
 var (
@@ -25,8 +25,8 @@ func main() {
 		fail(fmt.Errorf("error: token cannot be empty"))
 	}
 
-	b := bot.NewBot(config.Token)
-	go b.PollUpdates(handle)
+	c := telegram.NewClient(config.Token)
+	go telegram.PollUpdates(c, handle)
 
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(
@@ -52,8 +52,8 @@ func fail(err error) {
 	os.Exit(1)
 }
 
-func handle(b *bot.Bot, msg *bot.Message) error {
-	m, err := b.SendMessage(msg.Chat.ID, msg.Text)
+func handle(c *telegram.Client, msg *telegram.Message) error {
+	m, err := c.SendMessage(msg.Chat.ID, msg.Text)
 	if err != nil {
 		return err
 	}
